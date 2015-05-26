@@ -178,6 +178,12 @@ bool OMXPlayerAudio::Decode(OMXPacket *pkt)
 
   int channels = pkt->hints.channels;
 
+/*
+ * pkt->hints is not updated by ffmpeg demuxer,
+ * and only the decoder might know the right value.
+ * so commented out this block.
+*/
+#if 0
   unsigned int old_bitrate = m_config.hints.bitrate;
   unsigned int new_bitrate = pkt->hints.bitrate;
 
@@ -213,8 +219,10 @@ bool OMXPlayerAudio::Decode(OMXPacket *pkt)
     if(!m_player_error)
       return false;
   }
+#endif
 
   CLog::Log(LOGINFO, "CDVDPlayerAudio::Decode dts:%.0f pts:%.0f size:%d", pkt->dts, pkt->pts, pkt->size);
+CLog::Log(LOGDEBUG, "CDVDPlayerAudio::Decode ch:%d rate:%d bps:%d", channels, pkt->hints.samplerate, pkt->hints.bitspersample);
 
   if(pkt->pts != DVD_NOPTS_VALUE)
     m_iCurrentPts = pkt->pts;
@@ -230,8 +238,37 @@ bool OMXPlayerAudio::Decode(OMXPacket *pkt)
     while(data_len > 0)
     {
       int len = m_pAudioCodec->Decode((BYTE *)data_dec, data_len, dts, pts);
+{
+  /* AAC stream can change its ch,rate,layoutm, with pkt->hints unchanged */
+  int ch = m_pAudioCodec->GetChannels();
+  int rate = m_pAudioCodec->GetSampleRate();
+
+  if (ch != m_config.hints.channels || rate != m_config.hints.samplerate) {
+    CLog::Log(LOGINFO, "OMXPlayerAudio::%s config changed. ch:%d rate:%d fifo:%g\n",
+        __func__, ch, rate, m_config.fifo_size);
+    SubmitEOS();
+    WaitCompletion();
+    CLog::Log(LOGDEBUG, "OMXPlayerAudio::%s drained.\n", __func__);
+
+    CloseDecoder();
+    CloseAudioCodec();
+
+    m_config.hints.channels = pkt->hints.channels = ch;
+    m_config.hints.samplerate = pkt->hints.samplerate = rate;
+
+    m_player_error = OpenAudioCodec();
+    if (!m_player_error)
+      return false;
+    m_player_error = OpenDecoder();
+    if (!m_player_error)
+      return false;
+  }
+}
       if( (len < 0) || (len >  data_len) )
       {
+        CLog::Log(LOGINFO, "AudioCodec::Decode ret:%d ch:%d(0x%llx) rate:%d\n",
+            len, m_pAudioCodec->GetChannels(), m_pAudioCodec->GetChannelMap(),
+            m_pAudioCodec->GetSampleRate());
         m_pAudioCodec->Reset();
         break;
       }
