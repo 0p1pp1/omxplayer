@@ -30,6 +30,13 @@
 #include "utils/PCMRemap.h"
 #include "linux/PlatformDefs.h"
 
+enum DmonoMode
+{
+  DMONO_BOTH = 0,
+  DMONO_LEFT,
+  DMONO_RIGHT,
+};
+
 class COMXAudioCodecOMX
 {
 public:
@@ -47,6 +54,8 @@ public:
   static const char* GetName() { return "FFmpeg"; }
   int GetBitRate();
   unsigned int GetFrameSize() { return m_frameSize; }
+  void SetDmonoMode(enum DmonoMode mode);
+  enum DmonoMode GetDmonoMode();
 
 protected:
   AVCodecContext* m_pCodecContext;
@@ -63,6 +72,7 @@ protected:
   bool m_bOpenedCodec;
 
   int     m_channels;
+  enum DmonoMode m_eDmonoMode;
 
   bool m_bFirstFrame;
   bool m_bGotFrame;

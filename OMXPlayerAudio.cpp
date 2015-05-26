@@ -562,3 +562,14 @@ void OMXPlayerAudio::WaitCompletion()
   }
 } 
 
+void OMXPlayerAudio::SetDmonoMode(enum DmonoMode mode)
+{
+  if (!m_pAudioCodec)
+    return;
+  m_pAudioCodec->SetDmonoMode(mode);
+}
+
+enum DmonoMode OMXPlayerAudio::GetDmonoMode()
+{
+  return m_pAudioCodec ? m_pAudioCodec->GetDmonoMode() : DMONO_BOTH;
+}

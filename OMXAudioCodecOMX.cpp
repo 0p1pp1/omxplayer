@@ -42,6 +42,9 @@ COMXAudioCodecOMX::COMXAudioCodecOMX()
   m_bOpenedCodec = false;
 
   m_channels = 0;
+  /* set for dual-mono audio used in Japanese DTV */
+  m_eDmonoMode = DMONO_LEFT;
+
   m_pFrame1 = NULL;
   m_frameSize = 0;
   m_bGotFrame = false;
@@ -122,6 +125,7 @@ bool COMXAudioCodecOMX::Open(COMXStreamInfo &hints, enum PCMLayout layout)
     m_pCodecContext->extradata = (uint8_t*)m_dllAvUtil.av_mallocz(hints.extrasize + FF_INPUT_BUFFER_PADDING_SIZE);
     memcpy(m_pCodecContext->extradata, hints.extradata, hints.extrasize);
   }
+  SetDmonoMode(m_eDmonoMode);
 
   if (m_dllAvCodec.avcodec_open2(m_pCodecContext, pCodec, NULL) < 0)
   {
@@ -350,4 +354,16 @@ uint64_t COMXAudioCodecOMX::GetChannelMap()
 
 
   return layout;
+}
+
+void COMXAudioCodecOMX::SetDmonoMode(enum DmonoMode mode)
+{
+  m_eDmonoMode = mode;
+  if (m_pCodecContext->codec_id == AV_CODEC_ID_AAC)
+    m_dllAvUtil.av_opt_set_int(m_pCodecContext, "dual_mono_mode", 1, AV_OPT_SEARCH_CHILDREN);
+}
+
+enum DmonoMode COMXAudioCodecOMX::GetDmonoMode()
+{
+  return m_eDmonoMode;
 }
