@@ -114,6 +114,7 @@ bool              m_has_audio           = false;
 bool              m_has_subtitle        = false;
 bool              m_gen_log             = false;
 bool              m_loop                = false;
+bool              m_dmt                 = false;
 
 enum{ERROR=-1,SUCCESS,ONEBYTE};
 
@@ -275,7 +276,7 @@ void SetVideoMode(int width, int height, int fpsrate, int fpsscale, FORMAT_3D_T 
   int32_t num_modes = 0;
   int i;
   HDMI_RES_GROUP_T prefer_group;
-  HDMI_RES_GROUP_T group = HDMI_RES_GROUP_CEA;
+  HDMI_RES_GROUP_T group = m_dmt ? HDMI_RES_GROUP_DMT : HDMI_RES_GROUP_CEA;
   float fps = 60.0f; // better to force to higher rate if no information is known
   uint32_t prefer_mode;
 
@@ -565,6 +566,7 @@ int main(int argc, char *argv[])
   const int crop_opt        = 0x213;
   const int http_cookie_opt = 0x300;
   const int http_user_agent_opt = 0x301;
+  const int dmt_opt         = 0x2ff;
 
   struct option longopts[] = {
     { "info",         no_argument,        NULL,          'i' },
@@ -623,6 +625,7 @@ int main(int argc, char *argv[])
     { "layer",        required_argument,  NULL,          layer_opt },
     { "alpha",        required_argument,  NULL,          alpha_opt },
     { "display",      required_argument,  NULL,          display_opt },
+    { "dmt",          no_argument,        NULL,          dmt_opt },
     { "cookie",       required_argument,  NULL,          http_cookie_opt },
     { "user-agent",   required_argument,  NULL,          http_user_agent_opt },
     { 0, 0, 0, 0 }
@@ -892,6 +895,9 @@ int main(int argc, char *argv[])
       case 'k':
         print_keybindings();
         return EXIT_SUCCESS;
+        break;
+      case dmt_opt:
+        m_dmt = true;
         break;
       case ':':
         return EXIT_FAILURE;
