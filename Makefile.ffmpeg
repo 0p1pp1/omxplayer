@@ -19,8 +19,10 @@ compile:
 .PHONY : configure
 configure: 
 	cd ffmpeg; \
-	CFLAGS="$(CFLAGS) ${INCLUDES}" \
-	LDFLAGS="" \
+	PATH="$(TOOLCHAIN)/bin:$(PREFIX)/bin:$(PATH)" \
+	CFLAGS="$(CFLAGS) ${INCLUDES} --sysroot=$(SYSROOT)" \
+	LDFLAGS="--sysroot=$(SYSROOT)" \
+	PKG_CONFIG_PATH="$(SYSROOT)/usr/lib/arm-linux-gnueabihf/pkgconfig" \
   ./configure \
 			--extra-cflags="-mfpu=vfp -mfloat-abi=$(FLOAT) -mno-apcs-stack-check -mstructure-size-boundary=32 -mno-sched-prolog" \
 			--enable-cross-compile \
@@ -29,6 +31,7 @@ configure:
 			--arch=arm \
 			--cpu=arm1176jzf-s \
 			--target-os=linux \
+			--pkg-config=/usr/bin/pkg-config \
 			--disable-hwaccels \
 			--enable-parsers \
 			--disable-muxers \
