@@ -1053,7 +1053,11 @@ int main(int argc, char *argv[])
     memset(&tv_state, 0, sizeof(TV_DISPLAY_STATE_T));
     m_BcmHost.vc_tv_get_display_state(&tv_state);
 
-    SetVideoMode(m_config_video.hints.width, m_config_video.hints.height, m_config_video.hints.fpsrate, m_config_video.hints.fpsscale, m_3d);
+    SetVideoMode(m_config_video.hints.aspect > 0.1 ?
+                   m_config_video.hints.aspect * m_config_video.hints.height :
+                   m_config_video.hints.width,
+                 m_config_video.hints.height, m_config_video.hints.fpsrate,
+                 m_config_video.hints.fpsscale, m_3d);
   }
   // get display aspect
   TV_DISPLAY_STATE_T current_tv_state;
