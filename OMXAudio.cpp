@@ -1198,9 +1198,18 @@ bool COMXAudio::IsEOS()
   if(!m_Initialized)
     return true;
   unsigned int latency = GetAudioRenderingLatency();
+  COMXCoreComponent *c;
+
+  if (m_omx_render_hdmi.IsInitialized())
+    c = &m_omx_render_hdmi;
+  else if (m_omx_render_analog.IsInitialized())
+    c = &m_omx_render_analog;
+  else
+    c = &m_omx_decoder;
+
   CSingleLock lock (m_critSection);
 
-  if (!m_failed_eos && !(m_omx_decoder.IsEOS() && latency == 0))
+  if (!m_failed_eos && !(c->IsEOS() && latency == 0))
     return false;
 
   if (m_submitted_eos)

@@ -506,22 +506,22 @@ void OMXPlayerAudio::WaitCompletion()
   if(!m_decoder)
     return;
 
-  unsigned int nTimeOut = m_config.fifo_size * 1000;
-  while(nTimeOut)
+  unsigned int nTimeOut = 10 * 1000;
+  while(nTimeOut > 0)
   {
-    if(IsEOS())
+    if (m_decoder->IsEOS())
     {
       CLog::Log(LOGDEBUG, "%s::%s - got eos\n", "OMXPlayerAudio", __func__);
       break;
     }
 
-    if(nTimeOut == 0)
-    {
-      CLog::Log(LOGERROR, "%s::%s - wait for eos timed out\n", "OMXPlayerAudio", __func__);
-      break;
-    }
     OMXClock::OMXSleep(50);
     nTimeOut -= 50;
+  }
+
+  if(nTimeOut <= 0)
+  {
+    CLog::Log(LOGERROR, "%s::%s - wait for eos timed out\n", "OMXPlayerAudio", __func__);
   }
 } 
 
