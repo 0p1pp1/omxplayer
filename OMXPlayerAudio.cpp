@@ -176,13 +176,12 @@ bool OMXPlayerAudio::Decode(OMXPacket *pkt)
   if(!m_omx_reader->IsActive(OMXSTREAM_AUDIO, pkt->stream_index))
     return true; 
 
-  int channels = pkt->hints.channels;
-
 /*
  * pkt->hints is not updated by ffmpeg demuxer,
  * and only the decoder might know the right value.
  * so commented out this block.
 */
+  int channels = pkt->hints.channels;
 #if 0
   unsigned int old_bitrate = m_config.hints.bitrate;
   unsigned int new_bitrate = pkt->hints.bitrate;
@@ -201,6 +200,9 @@ bool OMXPlayerAudio::Decode(OMXPacket *pkt)
   if(pkt->hints.codec          != m_config.hints.codec ||
      pkt->hints.samplerate     != m_config.hints.samplerate ||
      (!m_passthrough && minor_change))
+#else
+  if (pkt->hints.codec != m_config.hints.codec)
+#endif
   {
     printf("C : %d %d %d %d %d\n", m_config.hints.codec, m_config.hints.channels, m_config.hints.samplerate, m_config.hints.bitrate, m_config.hints.bitspersample);
     printf("N : %d %d %d %d %d\n", pkt->hints.codec, channels, pkt->hints.samplerate, pkt->hints.bitrate, pkt->hints.bitspersample);
@@ -219,10 +221,8 @@ bool OMXPlayerAudio::Decode(OMXPacket *pkt)
     if(!m_player_error)
       return false;
   }
-#endif
 
   CLog::Log(LOGINFO, "CDVDPlayerAudio::Decode dts:%.0f pts:%.0f size:%d", pkt->dts, pkt->pts, pkt->size);
-CLog::Log(LOGDEBUG, "CDVDPlayerAudio::Decode ch:%d rate:%d bps:%d", channels, pkt->hints.samplerate, pkt->hints.bitspersample);
 
   if(pkt->pts != DVD_NOPTS_VALUE)
     m_iCurrentPts = pkt->pts;
@@ -238,32 +238,19 @@ CLog::Log(LOGDEBUG, "CDVDPlayerAudio::Decode ch:%d rate:%d bps:%d", channels, pk
     while(data_len > 0)
     {
       int len = m_pAudioCodec->Decode((BYTE *)data_dec, data_len, dts, pts);
-{
-  /* AAC stream can change its ch,rate,layoutm, with pkt->hints unchanged */
-  int ch = m_pAudioCodec->GetChannels();
-  int rate = m_pAudioCodec->GetSampleRate();
+      /* AAC stream can change its ch,rate,layoutm, with pkt->hints unchanged */
+      int ch = m_pAudioCodec->GetChannels();
+      int rate = m_pAudioCodec->GetSampleRate();
 
-  if (ch != m_config.hints.channels || rate != m_config.hints.samplerate) {
-    CLog::Log(LOGINFO, "OMXPlayerAudio::%s config changed. ch:%d rate:%d fifo:%g\n",
-        __func__, ch, rate, m_config.fifo_size);
-    SubmitEOS();
-    WaitCompletion();
-    CLog::Log(LOGDEBUG, "OMXPlayerAudio::%s drained.\n", __func__);
-
-    CloseDecoder();
-    CloseAudioCodec();
-
-    m_config.hints.channels = pkt->hints.channels = ch;
-    m_config.hints.samplerate = pkt->hints.samplerate = rate;
-
-    m_player_error = OpenAudioCodec();
-    if (!m_player_error)
-      return false;
-    m_player_error = OpenDecoder();
-    if (!m_player_error)
-      return false;
-  }
-}
+      if (ch != m_config.hints.channels || rate != m_config.hints.samplerate) {
+        m_config.hints.channels = ch;
+        m_config.hints.samplerate = rate;
+        m_player_error = m_decoder->SwitchDecoder(m_pAudioCodec->GetChannelMap(), rate);
+        if (!m_player_error)
+          return false;
+        printf("Audio changed to channels %d samplerate %d\n",
+               m_config.hints.channels, m_config.hints.samplerate);
+      }
       if( (len < 0) || (len >  data_len) )
       {
         CLog::Log(LOGINFO, "AudioCodec::Decode ret:%d ch:%d(0x%llx) rate:%d\n",

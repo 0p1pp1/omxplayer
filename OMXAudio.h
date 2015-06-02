@@ -119,6 +119,8 @@ public:
   int BuildChannelMapCEA(enum PCMChannels *channelMap, uint64_t layout);
   void BuildChannelMapOMX(enum OMX_AUDIO_CHANNELTYPE *channelMap, uint64_t layout);
   uint64_t GetChannelLayout(enum PCMLayout layout);
+  bool SwitchDecoder(uint64_t layout, int rate);
+  bool ReconfigurePortSettings();
 
 private:
   bool          m_Initialized;
@@ -160,16 +162,22 @@ private:
   std::deque<amplitudes_t> m_ampqueue;
   float m_downmix_matrix[OMX_AUDIO_MAXCHANNELS*OMX_AUDIO_MAXCHANNELS];
 
+  bool InitDecoder(COMXCoreComponent *decoder, bool init = true);
+  void SetupChannels(uint64_t channelMap);
+
 protected:
   COMXCoreComponent m_omx_render_analog;
   COMXCoreComponent m_omx_render_hdmi;
   COMXCoreComponent m_omx_splitter;
   COMXCoreComponent m_omx_mixer;
-  COMXCoreComponent m_omx_decoder;
+  COMXCoreComponent *m_omx_decoder;
+  COMXCoreComponent m_omx_decoder_a;
+  COMXCoreComponent m_omx_decoder_b;
   COMXCoreTunel     m_omx_tunnel_clock_analog;
   COMXCoreTunel     m_omx_tunnel_clock_hdmi;
   COMXCoreTunel     m_omx_tunnel_mixer;
-  COMXCoreTunel     m_omx_tunnel_decoder;
+  COMXCoreTunel     m_omx_tunnel_decoder_a;
+  COMXCoreTunel     m_omx_tunnel_decoder_b;
   COMXCoreTunel     m_omx_tunnel_splitter_analog;
   COMXCoreTunel     m_omx_tunnel_splitter_hdmi;
   DllAvUtil         m_dllAvUtil;

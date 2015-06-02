@@ -598,7 +598,7 @@ OMX_ERRORTYPE COMXCoreComponent::AllocInputBuffers(bool use_buffers /* = false *
   if(GetState() != OMX_StateIdle)
   {
     if(GetState() != OMX_StateLoaded)
-      SetStateForComponent(OMX_StateLoaded);
+      TransitionToStateLoaded();
 
     SetStateForComponent(OMX_StateIdle);
   }
@@ -753,6 +753,10 @@ OMX_ERRORTYPE COMXCoreComponent::FreeInputBuffers()
   m_flush_input = true;
 
   omx_err = DisablePort(m_input_port, false);
+  if(omx_err != OMX_ErrorNone)
+  {
+    CLog::Log(LOGERROR, "COMXCoreComponent::%s DisablePort failed on %s omx_err(0x%08x)\n", __func__, m_componentName.c_str(), omx_err);
+  }
 
   pthread_mutex_lock(&m_omx_input_mutex);
   pthread_cond_broadcast(&m_input_buffer_cond);
