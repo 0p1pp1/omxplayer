@@ -367,3 +367,33 @@ enum DmonoMode COMXAudioCodecOMX::GetDmonoMode()
 {
   return m_eDmonoMode;
 }
+
+int COMXAudioCodecOMX::FillSilence(double dts, double pts)
+{
+  int ret;
+
+  if (!m_pCodecContext || !m_pFrame1)
+    return -1;
+
+  ret = m_dllAvUtil.av_samples_alloc(m_pFrame1->data, m_pFrame1->linesize,
+            m_pFrame1->channels, m_pFrame1->nb_samples,
+            m_pCodecContext->sample_fmt, 0);
+  if (ret < 0)
+    return ret;
+
+  m_bGotFrame = true;
+  if (!m_iBufferOutputUsed)
+  {
+    m_dts = dts;
+    m_pts = pts;
+  }
+  return 0;
+}
+
+double COMXAudioCodecOMX::GetFrameDuration()
+{
+  if (!m_pCodecContext)
+    return 0.0;
+
+  return m_pCodecContext->frame_size / (double) m_pCodecContext->sample_rate;
+}

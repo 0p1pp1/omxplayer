@@ -163,6 +163,63 @@ bool OMXPlayerAudio::Close()
   return true;
 }
 
+void OMXPlayerAudio::InsertSilence(double pts)
+{
+  double frame_dur;
+
+  if (m_passthrough || m_hw_decode)
+    return;
+  if (pts == DVD_NOPTS_VALUE || m_iCurrentPts == DVD_NOPTS_VALUE)
+    return;
+
+  frame_dur = m_pAudioCodec->GetFrameDuration() * DVD_TIME_BASE;
+  if (frame_dur == 0 || pts - m_iCurrentPts < 2 * frame_dur)
+    return;
+
+  CLog::Log(LOGINFO, "CDVDPlayerAudio::%s Start inserting silence until %.0f",
+            __func__, pts);
+  do {
+    int ret;
+    uint8_t *decoded;
+    int decoded_size;
+    double t;
+
+    m_iCurrentPts += frame_dur;
+    ret = m_pAudioCodec->FillSilence(m_iCurrentPts, m_iCurrentPts);
+    if (ret != 0)
+    {
+      CLog::Log(LOGERROR, "CDVDPlayerAudio::%s Failed to fill silence(%d)",
+                __func__, ret);
+      break;
+    }
+
+    t = m_iCurrentPts;
+    decoded_size = m_pAudioCodec->GetData(&decoded, t, t);
+    if (decoded_size <= 0)
+      continue;
+
+    while((int) m_decoder->GetSpace() < decoded_size)
+    {
+      OMXClock::OMXSleep(10);
+      if(m_flush_requested)
+        return;
+    }
+
+    ret = m_decoder->AddPackets(decoded, decoded_size,
+                                m_iCurrentPts, m_iCurrentPts,
+                                m_pAudioCodec->GetFrameSize());
+    if(ret != decoded_size)
+    {
+      CLog::Log(LOGERROR, "CDVDPlayerAudio::%s AddPackets(ret:%d != size:%d)",
+                __func__, ret, decoded_size);
+      break;
+    }
+
+  } while (pts - m_iCurrentPts > frame_dur);
+
+  CLog::Log(LOGINFO, "CDVDPlayerAudio::%s Finished inserting silence at %.0f",
+            __func__, m_iCurrentPts);
+}
 
 bool OMXPlayerAudio::Decode(OMXPacket *pkt)
 {
@@ -223,6 +280,18 @@ bool OMXPlayerAudio::Decode(OMXPacket *pkt)
   }
 
   CLog::Log(LOGINFO, "CDVDPlayerAudio::Decode dts:%.0f pts:%.0f size:%d", pkt->dts, pkt->pts, pkt->size);
+
+  /*
+   * In some stream encodings, pkt->pts can jump when no sound exists.
+   * Since audio is used as a reference clock and its playout is not timed to
+   * an OMX Clock component (or MediaTime), discontinuous audio frames are
+   * played out immediately and make the media time gain abruptly,
+   * consequently changing playout speed of the video stream.
+   * Thus, fill in pts gaps here with silence.
+   */
+  InsertSilence(pkt->pts);
+  if(m_flush_requested)
+    return true;
 
   if(pkt->pts != DVD_NOPTS_VALUE)
     m_iCurrentPts = pkt->pts;

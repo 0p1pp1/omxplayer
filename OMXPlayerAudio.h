@@ -81,6 +81,8 @@ protected:
   void UnLock();
   void LockDecoder();
   void UnLockDecoder();
+
+  void InsertSilence(double pts);
 private:
 public:
   OMXPlayerAudio();

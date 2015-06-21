@@ -56,6 +56,8 @@ public:
   unsigned int GetFrameSize() { return m_frameSize; }
   void SetDmonoMode(enum DmonoMode mode);
   enum DmonoMode GetDmonoMode();
+  int FillSilence(double dts, double pts);
+  double GetFrameDuration();
 
 protected:
   AVCodecContext* m_pCodecContext;
