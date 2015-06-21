@@ -120,12 +120,15 @@ protected:
   double                    m_iCurrentPts;
   int                       m_speed;
   unsigned int              m_program;
+  unsigned int              m_prog_id;
   pthread_mutex_t           m_lock;
   double                    m_aspect;
   int                       m_width;
   int                       m_height;
   void Lock();
   void UnLock();
+  unsigned int GetProgramIndex(unsigned int id);
+  bool CheckPMTUpdate();
   bool SetActiveStreamInternal(OMXStreamType type, unsigned int index);
   bool                      m_seek;
 private:
@@ -170,6 +173,9 @@ public:
   int GetSubtitleIndex() { return (m_subtitle_index >= 0) ? m_streams[m_subtitle_index].index : -1; };
   int GetVideoIndex() { return (m_video_index >= 0) ? m_streams[m_video_index].index : -1; };
   std::string getFilename() const { return m_filename; }
+  int GetProgramId();
+  bool SetProgramId(unsigned int id);
+  bool MoveToNextProgram();
 
   int GetRelativeIndex(size_t index)
   {

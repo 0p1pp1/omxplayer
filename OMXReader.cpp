@@ -69,6 +69,8 @@ OMXReader::OMXReader()
   m_eof           = false;
   m_chapter_count = 0;
   m_iCurrentPts   = DVD_NOPTS_VALUE;
+  m_program     = UINT_MAX;
+  m_prog_id     = UINT_MAX;
 
   for(int i = 0; i < MAX_STREAMS; i++)
     m_streams[i].extradata = NULL;
@@ -143,7 +145,6 @@ bool OMXReader::Open(std::string filename, bool dump_format, bool live /* =false
   m_iCurrentPts = DVD_NOPTS_VALUE;
   m_filename    = filename; 
   m_speed       = DVD_PLAYSPEED_NORMAL;
-  m_program     = UINT_MAX;
   const AVIOInterruptCB int_cb = { interrupt_cb, NULL };
   RESET_TIMEOUT(3);
 
@@ -271,6 +272,7 @@ bool OMXReader::Open(std::string filename, bool dump_format, bool live /* =false
     return false;
   }
 
+  m_program = GetProgramIndex(m_prog_id);
   if(!GetStreams())
   {
     Close();
@@ -328,8 +330,6 @@ void OMXReader::ClearStreams()
     m_streams[i].index      = 0;
     m_streams[i].id         = 0;
   }
-
-  m_program     = UINT_MAX;
 }
 
 bool OMXReader::Close()
@@ -461,6 +461,9 @@ OMXPacket *OMXReader::Read()
   int       result = -1;
 
   if(!m_pFormatContext || m_eof)
+    return NULL;
+
+  if (!CheckPMTUpdate())
     return NULL;
 
   Lock();
@@ -604,8 +607,6 @@ bool OMXReader::GetStreams()
   if(!m_pFormatContext)
     return false;
 
-  unsigned int    m_program         = UINT_MAX;
-
   ClearStreams();
 
   if (m_pFormatContext->nb_programs)
@@ -618,14 +619,19 @@ bool OMXReader::GetStreams()
 
       if(i != m_program)
         m_pFormatContext->programs[i]->discard = AVDISCARD_ALL;
+      else
+        m_pFormatContext->programs[i]->discard = AVDISCARD_NONE;
     }
-      if(m_program != UINT_MAX)
+      if(m_program < m_pFormatContext->nb_programs)
       {
         // add streams from selected program
         for (unsigned int i = 0; i < m_pFormatContext->programs[m_program]->nb_stream_indexes; i++)
           AddStream(m_pFormatContext->programs[m_program]->stream_index[i]);
       }
     }
+
+  if (m_program != UINT_MAX && m_program >= m_pFormatContext->nb_programs)
+    return false;
 
   // if there were no programs or they were all empty, add all streams
   if (m_program == UINT_MAX)
@@ -1365,4 +1371,101 @@ bool OMXReader::CanSeek()
     return true;
 
   return false;
+}
+
+unsigned int OMXReader::GetProgramIndex(unsigned int id)
+{
+  if (!m_pFormatContext || id == UINT_MAX)
+    return UINT_MAX;
+
+  for (unsigned int i = 0; i < m_pFormatContext->nb_programs; i++)
+    if (m_pFormatContext->programs[i]->id == (int) id)
+      return i;
+
+  return UINT_MAX;
+}
+
+int OMXReader::GetProgramId()
+{
+  if (m_program == UINT_MAX)
+    return UINT_MAX;
+
+  if (!m_pFormatContext || m_program >= m_pFormatContext->nb_programs)
+    return UINT_MAX;
+
+  return m_pFormatContext->programs[m_program]->id;
+}
+
+bool OMXReader::SetProgramId(unsigned int id)
+{
+  m_prog_id = id;
+  if (!m_open)
+    return true;
+  m_program = GetProgramIndex(id);
+  return GetStreams();
+}
+
+bool OMXReader::MoveToNextProgram()
+{
+  if (!m_pFormatContext)
+    return false;
+
+  if (m_program == UINT_MAX)
+    return true;
+
+  m_program = (m_program + 1) % m_pFormatContext->nb_programs;
+  return GetStreams();
+}
+
+bool OMXReader::CheckPMTUpdate()
+{
+  AVProgram *prog;
+  bool v_ok, a_ok, s_ok;
+
+  if (!m_pFormatContext)
+    return true;
+
+  if (m_program == UINT_MAX)
+    return true;
+
+  if (m_program >= m_pFormatContext->nb_programs)
+    return false;
+
+  prog = m_pFormatContext->programs[m_program];
+  if (prog->nb_stream_indexes == 0)
+  {
+    unsigned int sid;
+
+    /* current PMT was invalidated. maybe PAT changed.. */
+    CLog::Log(LOGINFO, "OMXReader::%s The selected program(%u) has vanished,"
+              " maybe because PAT changed.", __func__, GetProgramId());
+
+    sid = GetProgramIndex(m_prog_id);
+    if (m_program == sid)
+      return false;
+
+    m_program = sid;
+    return GetStreams();
+  }
+
+  v_ok = (m_video_index == -1);
+  a_ok = (m_audio_index == -1);
+  s_ok = (m_subtitle_index == -1);
+  for (unsigned int i = 0; i < prog->nb_stream_indexes; i++)
+  {
+    if (prog->stream_index[i] == (unsigned int) m_video_index)
+      v_ok = true;
+    else if (prog->stream_index[i] == (unsigned int) m_audio_index)
+      a_ok = true;
+    else if (prog->stream_index[i] == (unsigned int) m_subtitle_index)
+      s_ok = true;
+  }
+  if (!v_ok || !a_ok || !s_ok)
+  {
+    CLog::Log(LOGINFO, "OMXReader::%s One of the selected PES has vanished"
+              " from program(%u), maybe because the PMT changed.",
+              __func__, GetProgramId());
+    return GetStreams();
+  }
+  return true;
 }
