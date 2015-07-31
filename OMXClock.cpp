@@ -345,8 +345,13 @@ double OMXClock::OMXMediaTime(bool lock /* = true */)
 
     pts = FromOMXTime(timeStamp.nTimestamp);
     //CLog::Log(LOGINFO, "OMXClock::MediaTime %.2f (%.2f, %.2f)", pts, m_last_media_time, now - m_last_media_time_read);
-    m_last_media_time = pts;
-    m_last_media_time_read = now;
+    if (pts < 0)  /* in preroll && fist PTS not set */
+      pts = 0.0;
+    else
+    {
+      m_last_media_time = pts;
+      m_last_media_time_read = now;
+    }
 
     if(lock)
       UnLock();

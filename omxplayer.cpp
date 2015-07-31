@@ -1580,12 +1580,12 @@ int main(int argc, char *argv[])
       double audio_pts = m_player_audio.GetCurrentPTS();
       double video_pts = m_player_video.GetCurrentPTS();
 
-      if (0 && m_av_clock->OMXIsPaused())
+      if (stamp <= 0.0 || m_av_clock->OMXIsPaused())
       {
         double old_stamp = stamp;
-        if (audio_pts != DVD_NOPTS_VALUE && (stamp == 0 || audio_pts < stamp))
+        if (audio_pts != DVD_NOPTS_VALUE && (stamp <= 0 || audio_pts < stamp))
           stamp = audio_pts;
-        if (video_pts != DVD_NOPTS_VALUE && (stamp == 0 || video_pts < stamp))
+        if (video_pts != DVD_NOPTS_VALUE && (stamp <= 0 || video_pts < stamp))
           stamp = video_pts;
         if (old_stamp != stamp)
         {
@@ -1603,7 +1603,7 @@ int main(int argc, char *argv[])
       {
         static int count;
         if ((count++ & 7) == 0)
-           printf("M:%8.0f V:%6.2fs %6dk/%6dk A:%6.2f %6.02fs/%6.02fs Cv:%6dk Ca:%6dk                            \r", stamp,
+           printf("M:%8.0f V:%6.2fs %5dk/%5dk A:%6.2f %6.02fs/%6.02fs Cv:%5dk Ca:%5dk                            \r", stamp,
                video_fifo, (m_player_video.GetDecoderBufferSize()-m_player_video.GetDecoderFreeSpace())>>10, m_player_video.GetDecoderBufferSize()>>10,
                audio_fifo, m_player_audio.GetDelay(), m_player_audio.GetCacheTotal(),
                m_player_video.GetCached()>>10, m_player_audio.GetCached()>>10);
@@ -1666,6 +1666,7 @@ int main(int argc, char *argv[])
             }
           }
           else
+          if (0)
           {
             m_latency = m_latency*0.99f + latency*0.01f;
             float speed = 1.0f;
