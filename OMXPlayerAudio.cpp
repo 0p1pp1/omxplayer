@@ -281,6 +281,8 @@ bool OMXPlayerAudio::Decode(OMXPacket *pkt)
 
   CLog::Log(LOGINFO, "CDVDPlayerAudio::Decode dts:%.0f pts:%.0f size:%d", pkt->dts, pkt->pts, pkt->size);
 
+  if(m_flush_requested)
+    return true;
   /*
    * In some stream encodings, pkt->pts can jump when no sound exists.
    * Since audio is used as a reference clock and its playout is not timed to
@@ -290,8 +292,6 @@ bool OMXPlayerAudio::Decode(OMXPacket *pkt)
    * Thus, fill in pts gaps here with silence.
    */
   InsertSilence(pkt->pts);
-  if(m_flush_requested)
-    return true;
 
   if(pkt->pts != DVD_NOPTS_VALUE)
     m_iCurrentPts = pkt->pts;

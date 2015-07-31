@@ -170,12 +170,16 @@ bool OMXReader::Open(std::string filename, bool dump_format, bool live /* =false
   if(m_filename.substr(0, 8) == "shout://" )
     m_filename.replace(0, 8, "http://");
 
+#if 0
   if(m_filename.substr(0,6) == "mms://" || m_filename.substr(0,7) == "mmsh://" || m_filename.substr(0,7) == "mmst://" || m_filename.substr(0,7) == "mmsu://" ||
       m_filename.substr(0,7) == "http://" || m_filename.substr(0,8) == "https://" ||
       m_filename.substr(0,7) == "rtmp://" || m_filename.substr(0,6) == "udp://" ||
       m_filename.substr(0,7) == "rtsp://" || m_filename.substr(0,6) == "rtp://" ||
       m_filename.substr(0,6) == "ftp://" || m_filename.substr(0,7) == "sftp://" ||
       m_filename.substr(0,6) == "smb://")
+#else
+  if(m_filename.find("://", 3) != std::string::npos)
+#endif
   {
     // ffmpeg dislikes the useragent from AirPlay urls
     //int idx = m_filename.Find("|User-Agent=AppleCoreMedia");
@@ -212,6 +216,21 @@ bool OMXReader::Open(std::string filename, bool dump_format, bool live /* =false
       CLog::Log(LOGERROR, "COMXPlayer::OpenFile - avformat_open_input %s ", m_filename.c_str());
       Close();
       return false;
+    }
+    if (m_filename.substr(0,6) == "dvb://")
+    {
+      int64_t progid = -1;
+      if (av_opt_get_int(m_pFormatContext->pb, "progid", AV_OPT_SEARCH_CHILDREN, &progid)
+          || progid < 0)
+      {
+        CLog::Log(LOGERROR, "COMXPlayer::OpenFile - no progid found in DVB channel config");
+        Close();
+        return false;
+      }
+      CLog::Log(LOGDEBUG, "COMXPlayer::OpenFile - DVB chose the program:%lld", progid);
+      m_prog_id = progid;
+      av_opt_set_int(m_pFormatContext, "probesize", 2000000, 0);
+      av_opt_set_int(m_pFormatContext, "analyzeduration", 1.0 * AV_TIME_BASE, 0);
     }
   }
   else
@@ -1467,5 +1486,104 @@ bool OMXReader::CheckPMTUpdate()
               __func__, GetProgramId());
     return GetStreams();
   }
+  return true;
+}
+
+#define DEBUG_FFMPEG 1
+#if DEBUG_FFMPEG
+static void log_av(void *ptr, int level, const char *fmt, va_list vl)
+{
+  static int print_prefix = 1;
+  char line[1024];
+
+  ::av_log_set_flags(AV_LOG_PRINT_LEVEL);
+  ::av_log_format_line(ptr, level, fmt, vl, line, sizeof(line), &print_prefix);
+  CLog::Log(LOGDEBUG, line);
+}
+#endif
+
+
+bool OMXReader::DvbRetune(const char *url)
+{
+  struct AVInputFormat *iformat;
+  const AVIOInterruptCB int_cb = { interrupt_cb, NULL };
+  int result;
+  RESET_TIMEOUT(3);
+
+#if DEBUG_FFMPEG
+m_dllAvUtil.av_log_set_callback(&log_av);
+#endif
+  /* close first, with iformat saved */
+  iformat = NULL;
+  if (m_pFormatContext)
+  {
+    iformat = m_pFormatContext->iformat;
+    m_dllAvFormat.avformat_close_input(&m_pFormatContext);
+  }
+
+  if(m_ioContext)
+  {
+    m_dllAvUtil.av_free(m_ioContext->buffer);
+    m_dllAvUtil.av_free(m_ioContext);
+  }
+
+  m_ioContext       = NULL;
+  m_pFormatContext  = NULL;
+
+  m_open            = false;
+  m_filename        = url;
+  m_eof             = false;
+  m_chapter_count   = 0;
+  m_iCurrentPts     = DVD_NOPTS_VALUE;
+  m_speed           = DVD_PLAYSPEED_NORMAL;
+  ClearStreams();
+
+  /* now re-open the demuxer */
+  m_pFormatContext     = m_dllAvFormat.avformat_alloc_context();
+
+  m_pFormatContext->interrupt_callback = int_cb;
+
+  m_pFormatContext->flags |= AVFMT_FLAG_NONBLOCK;
+
+  result = m_dllAvFormat.avformat_open_input(&m_pFormatContext, m_filename.c_str(), iformat, NULL);
+  if(result < 0)
+  {
+    CLog::Log(LOGERROR, "COMXReader::%s - avformat_open_input %s ", __func__, m_filename.c_str());
+    Close();
+    return false;
+  }
+
+  int64_t progid = -1;
+  if (av_opt_get_int(m_pFormatContext->pb, "progid", AV_OPT_SEARCH_CHILDREN, &progid)
+      || progid < 0)
+  {
+    CLog::Log(LOGERROR, "COMXReader::%s - no progid found in DVB channel config", __func__);
+    Close();
+    return false;
+  }
+  m_prog_id = progid;
+  av_opt_set_int(m_pFormatContext, "probesize", 2000000, 0);
+  av_opt_set_int(m_pFormatContext, "analyzeduration", 1.0 * AV_TIME_BASE, 0);
+
+  result = m_dllAvFormat.avformat_find_stream_info(m_pFormatContext, NULL);
+  if(result < 0)
+  {
+    Close();
+    return false;
+  }
+
+  m_program = GetProgramIndex(m_prog_id);
+  if(!GetStreams())
+  {
+    Close();
+    return false;
+  }
+
+  UpdateCurrentPTS();
+
+  m_open        = true;
+  CLog::Log(LOGDEBUG, "COMXReader::%s - Re-tuned to %s (program:%lld)",
+            __func__, url, progid);
+
   return true;
 }

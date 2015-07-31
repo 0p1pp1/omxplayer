@@ -1187,7 +1187,7 @@ void COMXAudio::UpdateAttenuation()
   }
   double stamp = m_av_clock->OMXMediaTime();
   // discard too old data
-  while(!m_ampqueue.empty())
+  while(!m_ampqueue.empty() && stamp > 0.0)
   {
     amplitudes_t &v = m_ampqueue.front();
     /* we'll also consume if queue gets unexpectedly long to avoid filling memory */

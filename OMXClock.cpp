@@ -144,7 +144,11 @@ void OMXClock::OMXDeinitialize()
   m_omx_clock.Deinitialize();
 
   m_omx_speed = DVD_PLAYSPEED_NORMAL;
+  m_WaitMask = 0;
+  m_eState = OMX_TIME_ClockStateStopped;
+  m_eClock = OMX_TIME_RefClockNone;
   m_last_media_time = 0.0f;
+  m_last_media_time_read = 0.0f;
 }
 
 bool OMXClock::OMXStateExecute(bool lock /* = true */)
@@ -332,7 +336,7 @@ double OMXClock::OMXMediaTime(bool lock /* = true */)
 
     OMX_TIME_CONFIG_TIMESTAMPTYPE timeStamp;
     OMX_INIT_STRUCTURE(timeStamp);
-    timeStamp.nPortIndex = m_omx_clock.GetInputPort();
+    timeStamp.nPortIndex = OMX_ALL; //m_omx_clock.GetInputPort();
 
     omx_err = m_omx_clock.GetConfig(OMX_IndexConfigTimeCurrentMediaTime, &timeStamp);
     if(omx_err != OMX_ErrorNone)
@@ -344,14 +348,11 @@ double OMXClock::OMXMediaTime(bool lock /* = true */)
     }
 
     pts = FromOMXTime(timeStamp.nTimestamp);
-    //CLog::Log(LOGINFO, "OMXClock::MediaTime %.2f (%.2f, %.2f)", pts, m_last_media_time, now - m_last_media_time_read);
-    if (pts < 0)  /* in preroll && fist PTS not set */
+    if (pts < 0)
       pts = 0.0;
-    else
-    {
-      m_last_media_time = pts;
-      m_last_media_time_read = now;
-    }
+    CLog::Log(LOGINFO, "OMXClock::MediaTime %.2f (%.2f, %.2f)", pts, m_last_media_time, now - m_last_media_time_read);
+    m_last_media_time = pts;
+    m_last_media_time_read = now;
 
     if(lock)
       UnLock();
@@ -360,7 +361,7 @@ double OMXClock::OMXMediaTime(bool lock /* = true */)
   {
     double speed = m_pause ? 0.0 : (double)m_omx_speed / DVD_PLAYSPEED_NORMAL;
     pts = m_last_media_time + (now - m_last_media_time_read) * speed;
-    //CLog::Log(LOGINFO, "OMXClock::MediaTime cached %.2f (%.2f, %.2f)", pts, m_last_media_time, now - m_last_media_time_read);
+    CLog::Log(LOGINFO, "OMXClock::MediaTime cached %.2f (%.2f, %.2f)", pts, m_last_media_time, now - m_last_media_time_read);
   }
   return pts;
 }

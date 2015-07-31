@@ -40,7 +40,8 @@ class KeyConfig
         ACTION_SHOW_SUBTITLES = 31,
         ACTION_SET_ALPHA = 32,
         ACTION_SET_ASPECT_MODE = 33,
-        ACTION_CROP_VIDEO = 34
+        ACTION_CROP_VIDEO = 34,
+        ACTION_DVB_SET_URL = 100,
     };
 
     #define KEY_LEFT 0x5b44

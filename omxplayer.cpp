@@ -1167,7 +1167,8 @@ int main(int argc, char *argv[])
 
     double now = m_av_clock->GetAbsoluteClock();
     bool update = false;
-    if (m_last_check_time == 0.0 || m_last_check_time + DVD_MSEC_TO_TIME(20) <= now) 
+    if (m_last_check_time == 0.0
+        || m_last_check_time + DVD_MSEC_TO_TIME(20) <= now)
     {
       update = true;
       m_last_check_time = now;
@@ -1487,6 +1488,21 @@ int main(int argc, char *argv[])
           m_Volume / 100.0f));
         printf("Current Volume: %.2fdB\n", m_Volume / 100.0f);
         break;
+      case KeyConfig::ACTION_DVB_SET_URL:
+        if (m_filename.compare(0, strlen("dvb://"), "dvb://"))
+          break;
+        if (strncmp(result.getWinArg(), "dvb://", strlen("dvb://")))
+          break;
+        m_filename = result.getWinArg();
+        FlushStreams(DVD_NOPTS_VALUE);
+        m_av_clock->OMXStateIdle();
+        m_omx_reader.DvbRetune(m_filename.c_str());
+        m_av_clock->OMXReset(m_has_video, m_has_audio);
+        m_av_clock->OMXStateExecute();
+        sentStarted = true;
+        m_latency = 0;
+        printf("Re-tune'd to %s\n", m_filename.c_str());
+        break;
       default:
         break;
     }
@@ -1580,21 +1596,23 @@ int main(int argc, char *argv[])
       double audio_pts = m_player_audio.GetCurrentPTS();
       double video_pts = m_player_video.GetCurrentPTS();
 
-      if (stamp <= 0.0 || m_av_clock->OMXIsPaused())
+CLog::Log(LOGDEBUG, "stamp = %.2f\n", stamp);
+      if (stamp > 0 && !m_av_clock->OMXIsPaused())
       {
         double old_stamp = stamp;
-        if (audio_pts != DVD_NOPTS_VALUE && (stamp <= 0 || audio_pts < stamp))
+        if (audio_pts != DVD_NOPTS_VALUE && audio_pts < stamp)
           stamp = audio_pts;
-        if (video_pts != DVD_NOPTS_VALUE && (stamp <= 0 || video_pts < stamp))
+        if (video_pts != DVD_NOPTS_VALUE && video_pts < stamp)
           stamp = video_pts;
         if (old_stamp != stamp)
         {
+printf("PTS went back! %.2f -> %.2f\n", old_stamp, stamp);
           m_av_clock->OMXMediaTime(stamp);
           stamp = m_av_clock->OMXMediaTime();
         }
       }
 
-      float audio_fifo = audio_pts == DVD_NOPTS_VALUE ? 0.0f : audio_pts / DVD_TIME_BASE - stamp * 1e-6;
+      float audio_fifo = stamp <= 0 ? m_player_audio.GetDelay() : audio_pts == DVD_NOPTS_VALUE ? 0.0f : audio_pts / DVD_TIME_BASE - stamp * 1e-6;
       float video_fifo = video_pts == DVD_NOPTS_VALUE ? 0.0f : video_pts / DVD_TIME_BASE - stamp * 1e-6;
       float threshold = std::min(0.1f, (float)m_player_audio.GetCacheTotal() * 0.1f);
       bool audio_fifo_low = false, video_fifo_low = false, audio_fifo_high = false, video_fifo_high = false;
@@ -1635,20 +1653,38 @@ int main(int argc, char *argv[])
       if (audio_pts != DVD_NOPTS_VALUE)
       {
         audio_fifo_low = m_has_audio && audio_fifo < threshold;
-        audio_fifo_high = !m_has_audio || (audio_pts != DVD_NOPTS_VALUE && audio_fifo > m_threshold);
       }
+      audio_fifo_high = !m_has_audio || (audio_pts != DVD_NOPTS_VALUE && audio_fifo > m_threshold);
       if (video_pts != DVD_NOPTS_VALUE)
       {
         video_fifo_low = m_has_video && video_fifo < threshold;
-        video_fifo_high = !m_has_video || (video_pts != DVD_NOPTS_VALUE && video_fifo > m_threshold);
       }
+      video_fifo_high = !m_has_video || (video_pts != DVD_NOPTS_VALUE && video_fifo > m_threshold);
       CLog::Log(LOGDEBUG, "Normal Stamp:%.0f PTS(A:%.0f V:%.0f) Paused:%d FIFO A:%.2f V:%.2f/Thresh:%.2f (Al:%d,Vl:%d,Ah:%d,Vh:%d) Level A:%d%% V:%d%% (Adelay:%.2f,Acache:%.2f)\n", stamp, audio_pts, video_pts, m_av_clock->OMXIsPaused(),
         audio_pts == DVD_NOPTS_VALUE ? 0.0:audio_fifo, video_pts == DVD_NOPTS_VALUE ? 0.0:video_fifo, m_threshold, audio_fifo_low, video_fifo_low, audio_fifo_high, video_fifo_high,
         m_player_audio.GetLevel(), m_player_video.GetLevel(), m_player_audio.GetDelay(), (float)m_player_audio.GetCacheTotal());
 
+      float latency = DVD_NOPTS_VALUE;
+      if (m_has_audio && audio_pts != DVD_NOPTS_VALUE)
+        latency = audio_fifo;
+      else if (!m_has_audio && m_has_video && video_pts != DVD_NOPTS_VALUE)
+        latency = video_fifo;
+      if (!m_Pause && latency != DVD_NOPTS_VALUE)
+      {
+        if (!m_av_clock->OMXIsPaused())
+          m_latency = m_latency * 0.8f + latency * 0.2f;
+        else if (latency > m_threshold)
+        {
+          printf("Finished buffering. V%.2f, A%.2f\n", video_fifo, audio_fifo);
+          CLog::Log(LOGDEBUG, "Resume %.2f,%.2f (%d,%d,%d,%d) EOF:%d PKT:%p\n", audio_fifo, video_fifo, audio_fifo_low, video_fifo_low, audio_fifo_high, video_fifo_high, m_omx_reader.IsEof(), m_omx_pkt);
+          m_av_clock->OMXResume();
+          m_latency = latency;
+        }
+      }
       // keep latency under control by adjusting clock (and so resampling audio)
       if (m_config_audio.is_live)
       {
+#if 0
         float latency = DVD_NOPTS_VALUE;
         if (m_has_audio && audio_pts != DVD_NOPTS_VALUE)
           latency = audio_fifo;
@@ -1666,9 +1702,14 @@ int main(int argc, char *argv[])
             }
           }
           else
+            m_latency = m_latency*0.9f + latency*0.1f;
+
+          if ((audio_fifo_low || video_fifo_low) && !m_av_clock->OMXIsPaused())
+          {
+            m_av_clock->OMXPause();
+          }
           if (0)
           {
-            m_latency = m_latency*0.99f + latency*0.01f;
             float speed = 1.0f;
             if (m_latency < 0.5f*m_threshold)
               speed = 0.990f;
@@ -1684,6 +1725,7 @@ int main(int argc, char *argv[])
             CLog::Log(LOGDEBUG, "Live: %.2f (%.2f) S:%.3f T:%.2f\n", m_latency, latency, speed, m_threshold);
           }
         }
+#endif
       }
       else if(!m_Pause && (m_omx_reader.IsEof() || m_omx_pkt || TRICKPLAY(m_av_clock->OMXPlaySpeed()) || (audio_fifo_high && video_fifo_high)))
       {

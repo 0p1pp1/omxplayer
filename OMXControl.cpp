@@ -184,8 +184,8 @@ OMXControlResult OMXControl::getEvent()
   }
   else if (dbus_message_is_method_call(m, DBUS_INTERFACE_PROPERTIES, "SupportedUriSchemes"))
   {
-    const char *UriSchemes[] = {"file", "http"};
-    dbus_respond_array(m, UriSchemes, 2); // Array is of length 2
+    const char *UriSchemes[] = {"file", "http", "dvb"};
+    dbus_respond_array(m, UriSchemes, 3); // Array is of length 3
     return KeyConfig::ACTION_BLANK;
   }
   else if (dbus_message_is_method_call(m, DBUS_INTERFACE_PROPERTIES, "SupportedMimeTypes"))
@@ -626,6 +626,22 @@ OMXControlResult OMXControl::getEvent()
     subtitles->SetVisible(false);
     dbus_respond_ok(m);
     return KeyConfig::ACTION_HIDE_SUBTITLES;
+  }
+  else if (dbus_message_is_method_call(m, OMXPLAYER_DBUS_INTERFACE_PLAYER, "SetUrl"))
+  {
+    DBusError error;
+    dbus_error_init(&error);
+
+    const char *url;
+    dbus_message_get_args(m, &error, DBUS_TYPE_STRING, &url, DBUS_TYPE_INVALID);
+
+    dbus_respond_ok(m);
+    if (dbus_error_is_set(&error))
+    {
+      dbus_error_free(&error);
+      return KeyConfig::ACTION_BLANK;
+    }
+    return OMXControlResult(KeyConfig::ACTION_DVB_SET_URL, url);
   }
   else if (dbus_message_is_method_call(m, OMXPLAYER_DBUS_INTERFACE_PLAYER, "Action"))
   {

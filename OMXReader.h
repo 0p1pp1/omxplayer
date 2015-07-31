@@ -193,5 +193,6 @@ public:
   std::string GetStreamName(OMXStreamType type, unsigned int index);
   std::string GetStreamType(OMXStreamType type, unsigned int index);
   bool CanSeek();
+  bool DvbRetune(const char *url);
 };
 #endif
