@@ -5,7 +5,7 @@ CFLAGS=-D__STDC_CONSTANT_MACROS -D__STDC_LIMIT_MACROS -DTARGET_POSIX -DTARGET_LI
 WORK=$(PWD)
 
 .PHONY : all
-all: checkout configure compile
+all: checkout patch configure compile
 
 .PHONY : copy
 copy:
@@ -45,6 +45,7 @@ configure:
 			--enable-gpl \
 			--enable-version3 \
 			--enable-protocols \
+			--enable-libdemulti2 \
 			--enable-libsmbclient \
 			--enable-libssh \
 			--enable-nonfree \
@@ -257,6 +258,11 @@ clean:
 .PHONY : checkout
 checkout:
 	git clone git://source.ffmpeg.org/ffmpeg ffmpeg -b n2.8.1 --depth=1
+
+.PHONY : patch
+patch:
+	cd ffmpeg; rm -f libavformat/dvbproto.c; git reset --hard HEAD; \
+	for i in ../ffmpeg_patch/*.patch; do patch -p1 -i "$$i"; done
 
 .PHONY : install
 install:

@@ -1,0 +1,420 @@
+From 1c92fc8a518b11fcd91443c04d42a21fd3e65dc2 Mon Sep 17 00:00:00 2001
+From: 0p1pp1 <0p1pp1[fms.freenet>
+Date: Thu, 25 Jun 2015 11:10:43 +0900
+Subject: [PATCH 1/3] add support for MULTI2 de-scrambling of ISDB/Japanese DTV
+
+---
+ configure            |   6 +++
+ libavformat/mpegts.c | 147 ++++++++++++++++++++++++++++++++++++++++++++++++++-
+ libavformat/mpegts.h |   1 +
+ 3 files changed, 153 insertions(+), 1 deletion(-)
+
+diff --git a/configure b/configure
+index 7f9fed3..e83d8bb 100755
+--- a/configure
++++ b/configure
+@@ -214,6 +214,7 @@ External library support:
+   --enable-libdc1394       enable IIDC-1394 grabbing using libdc1394
+                            and libraw1394 [no]
+   --enable-libdcadec       enable DCA decoding via libdcadec [no]
++  --enable-libdemulti2     enable MULTI2 descrambling via libdemulti2 [no]
+   --enable-libfaac         enable AAC encoding via libfaac [no]
+   --enable-libfdk-aac      enable AAC de/encoding via libfdk-aac [no]
+   --enable-libflite        enable flite (voice synthesis) support via libflite [no]
+@@ -1372,6 +1373,7 @@ EXTERNAL_LIBRARY_LIST="
+     libcelt
+     libdc1394
+     libdcadec
++    libdemulti2
+     libfaac
+     libfdk_aac
+     libflite
+@@ -2494,6 +2496,7 @@ mjpeg2jpeg_bsf_select="jpegtables"
+ libaacplus_encoder_deps="libaacplus"
+ libcelt_decoder_deps="libcelt"
+ libdcadec_decoder_deps="libdcadec"
++libdemulti2_demuxer_deps="libdemulti2 dlopen"
+ libfaac_encoder_deps="libfaac"
+ libfaac_encoder_select="audio_frame_queue"
+ libfdk_aac_decoder_deps="libfdk_aac"
+@@ -4647,6 +4650,7 @@ die_license_disabled_gpl() {
+ 
+ die_license_disabled gpl frei0r
+ die_license_disabled gpl libcdio
++die_license_disabled gpl libdemulti2
+ die_license_disabled gpl libsmbclient
+ die_license_disabled gpl libutvideo
+ die_license_disabled gpl libvidstab
+@@ -5009,6 +5013,7 @@ fi
+ 
+ frei0r_filter_extralibs='$ldl'
+ frei0r_src_filter_extralibs='$ldl'
++libdemulti2_demuxer_extralibs='$ldl'
+ ladspa_filter_extralibs='$ldl'
+ nvenc_encoder_extralibs='$ldl'
+ 
+@@ -5225,6 +5230,7 @@ enabled libcelt           && require libcelt celt/celt.h celt_decode -lcelt0 &&
+ enabled libcaca           && require_pkg_config caca caca.h caca_create_canvas
+ enabled libdcadec         && require_pkg_config dcadec libdcadec/dca_context.h dcadec_context_create &&
+                              check_struct libdcadec/dca_context.h "struct dcadec_exss_info" matrix_encoding
++enabled libdemulti2       && require libdemulti2 demulti2.h demulti2_open -ldemulti2
+ enabled libfaac           && require2 libfaac "stdint.h faac.h" faacEncGetVersion -lfaac
+ enabled libfdk_aac        && { use_pkg_config fdk-aac "fdk-aac/aacenc_lib.h" aacEncOpen ||
+                                { require libfdk_aac fdk-aac/aacenc_lib.h aacEncOpen -lfdk-aac &&
+diff --git a/libavformat/mpegts.c b/libavformat/mpegts.c
+index 65824dd..263dfef 100644
+--- a/libavformat/mpegts.c
++++ b/libavformat/mpegts.c
+@@ -19,6 +19,7 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+  */
+ 
++#include "config.h"
+ #include "libavutil/buffer.h"
+ #include "libavutil/crc.h"
+ #include "libavutil/internal.h"
+@@ -38,6 +39,10 @@
+ #include "mpeg.h"
+ #include "isom.h"
+ 
++#if CONFIG_LIBDEMULTI2
++#include <demulti2.h>
++#endif
++
+ /* maximum size in which we look for synchronisation if
+  * synchronisation is lost */
+ #define MAX_RESYNC_SIZE 65536
+@@ -46,6 +51,8 @@
+ 
+ #define MAX_MP4_DESCR_COUNT 16
+ 
++#define SEC_VER_INVALID 0x20
++
+ #define MOD_UNLIKELY(modulus, dividend, divisor, prev_dividend)                \
+     do {                                                                       \
+         if ((prev_dividend) == 0 || (dividend) - (prev_dividend) != (divisor)) \
+@@ -57,6 +64,7 @@ enum MpegTSFilterType {
+     MPEGTS_PES,
+     MPEGTS_SECTION,
+     MPEGTS_PCR,
++    MPEGTS_PRIV,
+ };
+ 
+ typedef struct MpegTSFilter MpegTSFilter;
+@@ -82,6 +90,7 @@ typedef struct MpegTSSectionFilter {
+     uint8_t *section_buf;
+     unsigned int check_crc : 1;
+     unsigned int end_of_section_reached : 1;
++    unsigned int version : 6;
+     SectionCallback *section_cb;
+     void *opaque;
+ } MpegTSSectionFilter;
+@@ -159,6 +168,11 @@ struct MpegTSContext {
+     /** filters for various streams specified by PMT + for the PAT and PMT */
+     MpegTSFilter *pids[NB_PID_MAX];
+     int current_pid;
++
++#if CONFIG_LIBDEMULTI2
++    /** handle for libdemulti2 (used in desrambling) */
++    Demulti2Handle dm2_handle;
++#endif
+ };
+ 
+ #define MPEGTS_OPTIONS \
+@@ -220,9 +234,12 @@ enum MpegTSState {
+ #define PES_HEADER_SIZE 9
+ #define MAX_PES_HEADER_SIZE (9 + 255)
+ 
++#define ECM_PID_NONE 0x1fff
++
+ typedef struct PESContext {
+     int pid;
+     int pcr_pid; /**< if -1 then all packets containing PCR are considered */
++    int ecm_pid;
+     int stream_type;
+     MpegTSContext *ts;
+     AVFormatContext *stream;
+@@ -477,9 +494,10 @@ static MpegTSFilter *mpegts_open_section_filter(MpegTSContext *ts,
+     sec = &filter->u.section_filter;
+     sec->section_cb  = section_cb;
+     sec->opaque      = opaque;
+-    sec->section_buf = av_malloc(MAX_SECTION_SIZE);
++    sec->section_buf = av_mallocz(MAX_SECTION_SIZE);
+     sec->check_crc   = check_crc;
+     sec->last_ver    = -1;
++    sec->version     = SEC_VER_INVALID;
+ 
+     if (!sec->section_buf) {
+         av_free(filter);
+@@ -585,6 +603,7 @@ typedef struct SectionHeader {
+     uint8_t tid;
+     uint16_t id;
+     uint8_t version;
++    uint8_t cur_nxt;
+     uint8_t sec_num;
+     uint8_t last_sec_num;
+ } SectionHeader;
+@@ -668,6 +687,7 @@ static int parse_section_header(SectionHeader *h,
+     if (val < 0)
+         return val;
+     h->version = (val >> 1) & 0x1f;
++    h->cur_nxt = val & 0x01;
+     val = get8(pp, p_end);
+     if (val < 0)
+         return val;
+@@ -1245,6 +1265,7 @@ static PESContext *add_pes_stream(MpegTSContext *ts, int pid, int pcr_pid)
+     pes->stream  = ts->stream;
+     pes->pid     = pid;
+     pes->pcr_pid = pcr_pid;
++    pes->ecm_pid = ECM_PID_NONE;
+     pes->state   = MPEGTS_SKIP;
+     pes->pts     = AV_NOPTS_VALUE;
+     pes->dts     = AV_NOPTS_VALUE;
+@@ -1558,6 +1579,69 @@ static void m4sl_cb(MpegTSFilter *filter, const uint8_t *section,
+         av_free(mp4_descr[i].dec_config_descr);
+ }
+ 
++#if CONFIG_LIBDEMULTI2
++static void ecm_cb(MpegTSFilter *filter, const uint8_t *section,int section_len)
++{
++    MpegTSContext *ts = filter->u.section_filter.opaque;
++    SectionHeader h1, *h = &h1;
++    const uint8_t *p, *p_end;
++    int ret;
++
++    av_dlog(ts->stream, "ECM: len %i\n", section_len);
++    hex_dump_debug(ts->stream, section, section_len);
++
++    p_end = section + section_len - 4;
++    p = section;
++    if (parse_section_header(h, &p, p_end) < 0)
++        return;
++
++    if (h->tid != ECM_TID)
++        return;
++    if (h->version == filter->u.section_filter.version)
++        return;
++    filter->u.section_filter.version = h->version;
++
++    ret = demulti2_feed_ecm(ts->dm2_handle, p, p_end - p, filter->pid);
++    if (ret)
++        av_log(ts->stream, AV_LOG_ERROR, "ecm_cb failed. ret:%d\n", ret);
++}
++
++static void add_ecm(MpegTSContext *ts, int pid, int cas)
++{
++    MpegTSFilter *fil = ts->pids[pid];
++
++    if (!ts->dm2_handle || pid >= ECM_PID_NONE)
++        return;
++
++    if (cas != 0x0005 && cas != 0x000a) {
++        av_log(ts->stream, AV_LOG_INFO, "Not supported CAS-id:%d\n", cas);
++        if (fil)
++            mpegts_close_filter(ts, fil);
++        return;
++    }
++
++    if (fil && (fil->type != MPEGTS_SECTION
++                || fil->u.section_filter.section_cb != ecm_cb)) {
++        av_dlog(ts->stream, "Re-purposing the filter[0x%04x] for ECM\n", pid);
++        mpegts_close_filter(ts, fil);
++    }
++
++    if (ts->pids[pid])
++        return;
++
++    fil = mpegts_open_section_filter(ts, pid, ecm_cb, ts, 1);
++    if (!fil) {
++        av_log(ts->stream, AV_LOG_WARNING,
++               "Failed to create ECM filter[0x%04x]\n", pid);
++        return;
++    }
++
++    av_dlog(ts->stream, "Added ECM pid[0x%04x] cas_id:0x%04x\n", pid, cas);
++}
++#else
++static void add_ecm(MpegTSContext *ts, int pid, int cas) {return;}
++#endif  /* CONFIG_LIBDEMULTI2 */
++
+ static const uint8_t opus_coupled_stream_cnt[9] = {
+     1, 0, 1, 1, 2, 2, 2, 3, 3
+ };
+@@ -1586,6 +1670,8 @@ int ff_parse_mpeg2_descriptor(AVFormatContext *fc, AVStream *st, int stream_type
+     int desc_len, desc_tag, desc_es_id, ext_desc_tag, channels, channel_config_code;
+     char language[252];
+     int i;
++    PESContext *ctx;
++    int ecm_pid, ecm_cas;
+ 
+     desc_tag = get8(pp, desc_list_end);
+     if (desc_tag < 0)
+@@ -1820,6 +1906,20 @@ int ff_parse_mpeg2_descriptor(AVFormatContext *fc, AVStream *st, int stream_type
+             }
+         }
+         break;
++    case 0x09: /* CA descriptor */
++        ecm_cas = get16(pp, desc_end);
++        if (ecm_cas < 0)
++            break;
++        ecm_pid = get16(pp, desc_end);
++        if (ecm_pid < 0)
++            break;
++        ecm_pid &= 0x1fff;
++        if (!ts->pids[pid])
++            break;
++        ctx = ts->pids[pid]->u.pes_filter.opaque;
++        ctx->ecm_pid = ecm_pid;
++        add_ecm(ts, ecm_pid, ecm_cas);
++        break;
+     default:
+         break;
+     }
+@@ -1838,6 +1938,7 @@ static void pmt_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
+     int program_info_length, pcr_pid, pid, stream_type;
+     int desc_list_len;
+     uint32_t prog_reg_desc = 0; /* registration descriptor */
++    int prog_ecm_pid, prog_ecm_cas;
+ 
+     int mp4_descr_count = 0;
+     Mp4Descr mp4_descr[MAX_MP4_DESCR_COUNT] = { { 0 } };
+@@ -1858,6 +1959,9 @@ static void pmt_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
+ 
+     if (h->tid != PMT_TID)
+         return;
++    if (!h->cur_nxt || h->version == filter->u.section_filter.version)
++        return;
++    filter->u.section_filter.version = h->version;
+     if (!ts->scan_all_pmts && ts->skip_changes)
+         return;
+ 
+@@ -1873,6 +1977,9 @@ static void pmt_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
+ 
+     av_log(ts->stream, AV_LOG_TRACE, "pcr_pid=0x%x\n", pcr_pid);
+ 
++    prog_ecm_pid = ECM_PID_NONE;
++    prog_ecm_cas = 0;
++
+     program_info_length = get16(&p, p_end);
+     if (program_info_length < 0)
+         return;
+@@ -1897,6 +2004,11 @@ static void pmt_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
+         } else if (tag == 0x05 && len >= 4) { // registration descriptor
+             prog_reg_desc = bytestream_get_le32(&p);
+             len -= 4;
++        } else if (tag == 0x09 && len >= 4) { // CA descriptor
++            prog_ecm_cas = get16(&p, p_end);
++            prog_ecm_pid = get16(&p, p_end) & 0x1fff;
++            len -= 4;
++            add_ecm(ts, prog_ecm_pid, prog_ecm_cas);
+         }
+         p += len;
+     }
+@@ -1943,6 +2055,9 @@ static void pmt_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
+                 if (!st)
+                     goto out;
+                 st->id = pes->pid;
++                /* packets of private data PES may not start with 00 00 01 */
++                if (stream_type == 0x06)
++                    ts->pids[pid]->type = MPEGTS_PRIV;
+             }
+         } else {
+             int idx = ff_find_stream_index(ts->stream, pid);
+@@ -1960,6 +2075,9 @@ static void pmt_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
+         if (!st)
+             goto out;
+ 
++        if (pes)
++            pes->ecm_pid = prog_ecm_pid;
++
+         if (pes && !pes->stream_type)
+             mpegts_set_stream_info(st, pes, stream_type, prog_reg_desc);
+ 
+@@ -2016,6 +2134,9 @@ static void pat_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
+         return;
+     if (h->tid != PAT_TID)
+         return;
++    if (!h->cur_nxt || h->version == filter->u.section_filter.version)
++        return;
++    filter->u.section_filter.version = h->version;
+     if (ts->skip_changes)
+         return;
+ 
+@@ -2091,6 +2212,9 @@ static void sdt_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
+         return;
+     if (h->tid != SDT_TID)
+         return;
++    if (!h->cur_nxt || h->version == filter->u.section_filter.version)
++        return;
++    filter->u.section_filter.version = h->version;
+     if (ts->skip_changes)
+         return;
+     if (skip_identical(h, tssf))
+@@ -2169,6 +2293,8 @@ static int handle_packet(MpegTSContext *ts, const uint8_t *packet)
+     const uint8_t *p, *p_end;
+     int64_t pos;
+ 
++    if (packet[1] & 0x80)  /* TSEI */
++        return 0;
+     pid = AV_RB16(packet + 1) & 0x1fff;
+     if (pid && discard_pid(ts, pid))
+         return 0;
+@@ -2277,10 +2403,19 @@ static int handle_packet(MpegTSContext *ts, const uint8_t *packet)
+             }
+         }
+ 
++    } else if (tss->type != MPEGTS_PES) {
++        return 0;
+     } else {
+         int ret;
+         // Note: The position here points actually behind the current packet.
+         if (tss->type == MPEGTS_PES) {
++#if CONFIG_LIBDEMULTI2
++            PESContext *cxt = tss->u.pes_filter.opaque;
++
++            if ((packet[3] & 0x80) && ts->dm2_handle)
++                demulti2_descramble(ts->dm2_handle, p, p_end - p, packet[3],
++                                    cxt->ecm_pid, NULL);
++#endif
+             if ((ret = tss->u.pes_filter.pes_cb(tss, p, p_end - p, is_start,
+                                                 pos - ts->raw_packet_size)) < 0)
+                 return ret;
+@@ -2520,6 +2655,12 @@ static int mpegts_read_header(AVFormatContext *s)
+                              s->probesize;
+ #endif
+ 
++#if CONFIG_LIBDEMULTI2
++    ts->dm2_handle = demulti2_open();
++    if (!ts->dm2_handle)
++        av_log(ts->stream, AV_LOG_WARNING, "Failed to setup libdemulti2.\n");
++#endif
++
+     if (ffio_ensure_seekback(pb, probesize) < 0)
+         av_log(s, AV_LOG_WARNING, "Failed to allocate buffers for seekback\n");
+ 
+@@ -2690,6 +2831,10 @@ static void mpegts_free(MpegTSContext *ts)
+ {
+     int i;
+ 
++#if CONFIG_LIBDEMULTI2
++    demulti2_close(ts->dm2_handle);
++#endif
++
+     clear_programs(ts);
+ 
+     for (i = 0; i < NB_PID_MAX; i++)
+diff --git a/libavformat/mpegts.h b/libavformat/mpegts.h
+index 84f3098..b2e0376 100644
+--- a/libavformat/mpegts.h
++++ b/libavformat/mpegts.h
+@@ -41,6 +41,7 @@
+ #define PMT_TID   0x02
+ #define M4OD_TID  0x05
+ #define SDT_TID   0x42
++#define ECM_TID   0x82
+ 
+ #define STREAM_TYPE_VIDEO_MPEG1     0x01
+ #define STREAM_TYPE_VIDEO_MPEG2     0x02
+-- 
+2.6.3
+
