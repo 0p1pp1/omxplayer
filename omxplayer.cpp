@@ -1156,6 +1156,8 @@ int main(int argc, char *argv[])
 
   m_av_clock->OMXReset(m_has_video, m_has_audio);
   m_av_clock->OMXStateExecute();
+  if (m_config_audio.is_live)
+    m_av_clock->OMXPause();
   sentStarted = true;
 
   while(!m_stop)
