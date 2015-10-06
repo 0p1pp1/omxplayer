@@ -1495,13 +1495,46 @@ int main(int argc, char *argv[])
           break;
         m_filename = result.getWinArg();
         FlushStreams(DVD_NOPTS_VALUE);
-        m_av_clock->OMXStateIdle();
-        m_omx_reader.DvbRetune(m_filename.c_str());
-        m_av_clock->OMXReset(m_has_video, m_has_audio);
-        m_av_clock->OMXStateExecute();
-        sentStarted = true;
-        m_latency = 0;
-        printf("Re-tune'd to %s\n", m_filename.c_str());
+        if (!idle)
+        {
+          m_player_audio.Close();
+#define RESET_VIDEO 1
+#if RESET_VIDEO
+          m_player_video.Close();
+#endif
+        }
+        if (m_omx_reader.DvbRetune(m_filename.c_str()))
+        {
+          if (m_has_audio)
+          {
+            m_omx_reader.GetHints(OMXSTREAM_AUDIO, m_config_audio.hints);
+            m_player_audio.Open(m_av_clock, m_config_audio, &m_omx_reader);
+            m_player_audio.SetVolume(pow(10, m_Volume / 2000.0));
+            if (m_Amplification)
+              m_player_audio.SetDynamicRangeCompression(m_Amplification);
+          }
+#if RESET_VIDEO
+          if (m_has_video)
+          {
+            m_omx_reader.GetHints(OMXSTREAM_VIDEO, m_config_video.hints);
+            if (m_fps > 0.0f)
+              m_config_video.hints.fpsrate = m_fps * DVD_TIME_BASE, m_config_video.hints.fpsscale = DVD_TIME_BASE;
+            m_player_video.Open(m_av_clock, m_config_video);
+          }
+#endif
+
+          m_av_clock->OMXReset(m_has_video, m_has_audio);
+          //m_av_clock->OMXStateExecute();
+          sentStarted = true;
+          m_latency = 0;
+          idle = false;
+          printf("Re-tune'd to %s\n", m_filename.c_str());
+        }
+        else
+        {
+          idle = true;
+          printf("Failed to re-tune to %s\n", m_filename.c_str());
+        }
         break;
       default:
         break;
@@ -1510,7 +1543,7 @@ int main(int argc, char *argv[])
 
     if (idle)
     {
-      usleep(10000);
+      usleep(100000);
       continue;
     }
 
