@@ -302,9 +302,9 @@ bool OMXPlayerVideo::AddPacket(OMXPacket *pkt)
     Lock();
     m_cached_size += pkt->size;
     m_packets.push_back(pkt);
+    pthread_cond_broadcast(&m_packet_cond);
     UnLock();
     ret = true;
-    pthread_cond_broadcast(&m_packet_cond);
   }
 
   return ret;
