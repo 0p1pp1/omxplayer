@@ -1653,7 +1653,7 @@ printf("PTS went back! %.2f -> %.2f\n", old_stamp, stamp);
       if(m_stats)
       {
         static int count;
-        if ((count++ & 7) == 0)
+        if ((count++ & 15) == 0)
            printf("M:%8.0f V:%6.2fs %5dk/%5dk A:%6.2f %6.02fs/%6.02fs Cv:%5dk Ca:%5dk                            \r", stamp,
                video_fifo, (m_player_video.GetDecoderBufferSize()-m_player_video.GetDecoderFreeSpace())>>10, m_player_video.GetDecoderBufferSize()>>10,
                audio_fifo, m_player_audio.GetDelay(), m_player_audio.GetCacheTotal(),
