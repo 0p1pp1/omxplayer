@@ -71,6 +71,7 @@ COMXAudio::COMXAudio() :
   m_setStartTime    (false  ),
   m_eEncoding       (OMX_AUDIO_CodingPCM),
   m_last_pts        (DVD_NOPTS_VALUE),
+  m_first_pts       (DVD_NOPTS_VALUE),
   m_submitted_eos   (false  ),
   m_failed_eos      (false  )
 {
@@ -833,6 +834,7 @@ bool COMXAudio::Initialize(OMXClock *clock, const OMXAudioConfig &config, uint64
   m_submitted_eos = false;
   m_failed_eos = false;
   m_last_pts      = DVD_NOPTS_VALUE;
+  m_first_pts     = DVD_NOPTS_VALUE;
   m_submitted     = 0.0f;
   m_maxLevel      = 0.0f;
 
@@ -903,6 +905,7 @@ bool COMXAudio::Deinitialize()
     m_ampqueue.pop_front();
 
   m_last_pts      = DVD_NOPTS_VALUE;
+  m_first_pts     = DVD_NOPTS_VALUE;
   m_submitted     = 0.0f;
   m_maxLevel      = 0.0f;
 
@@ -931,6 +934,7 @@ void COMXAudio::Flush()
     m_ampqueue.pop_front();
 
   m_last_pts      = DVD_NOPTS_VALUE;
+  m_first_pts     = DVD_NOPTS_VALUE;
   m_submitted     = 0.0f;
   m_maxLevel      = 0.0f;
   m_setStartTime  = true;
@@ -1113,6 +1117,7 @@ unsigned int COMXAudio::AddPackets(const void* data, unsigned int len, double dt
       omx_buffer->nFlags = OMX_BUFFERFLAG_STARTTIME;
 
       m_last_pts = pts;
+      m_first_pts = pts;
 
       CLog::Log(LOGDEBUG, "COMXAudio::Decode ADec : setStartTime %f\n", (float)val / DVD_TIME_BASE);
       m_setStartTime = false;
@@ -1253,10 +1258,14 @@ float COMXAudio::GetDelay()
   if (m_last_pts != DVD_NOPTS_VALUE && m_av_clock)
     stamp = m_av_clock->OMXMediaTime();
   // if possible the delay is current media time - time of last submitted packet
-  if (stamp != DVD_NOPTS_VALUE)
+  if (stamp != DVD_NOPTS_VALUE && stamp > 0.0)
   {
     ret = (m_last_pts - stamp) * (1.0 / DVD_TIME_BASE);
     //CLog::Log(LOGINFO, "%s::%s - %.2f %.0f %.0f", CLASSNAME, __func__, ret, stamp, m_last_pts);
+  }
+  else if (stamp == 0.0)
+  {
+    ret = (m_last_pts - m_first_pts) * (1.0 / DVD_TIME_BASE);
   }
   else // just measure the input fifo
   {

@@ -145,6 +145,7 @@ private:
   bool          m_setStartTime;
   OMX_AUDIO_CODINGTYPE m_eEncoding;
   double        m_last_pts;
+  double        m_first_pts;
   bool          m_submitted_eos;
   bool          m_failed_eos;
   OMXAudioConfig m_config;
