@@ -179,7 +179,6 @@ bool COMXAudio::SwitchDecoder(uint64_t layout, int rate)
       CLog::Log(LOGERROR,
           "%s::%s - Decoder failed to stop (ret:0x%08x)",
           CLASSNAME, __func__, omx_err);
-      return false;
     }
 
     omx_err = m_omx_decoder->FreeInputBuffers();
