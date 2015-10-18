@@ -332,6 +332,21 @@ double OMXClock::OMXMediaTime(bool lock /* = true */)
     if(lock)
       Lock();
 
+    if (m_last_media_time == 0.0)
+    {
+      OMX_ERRORTYPE omx_err = OMX_ErrorNone;
+      OMX_TIME_CONFIG_CLOCKSTATETYPE clock;
+      OMX_INIT_STRUCTURE(clock);
+
+      omx_err = m_omx_clock.GetConfig(OMX_IndexConfigTimeClockState, &clock);
+      if (omx_err != OMX_ErrorNone || clock.eState == OMX_TIME_ClockStateWaitingForStartTime)
+      {
+        if(lock)
+          UnLock();
+        return 0;
+      }
+    }
+
     OMX_ERRORTYPE omx_err = OMX_ErrorNone;
 
     OMX_TIME_CONFIG_TIMESTAMPTYPE timeStamp;
