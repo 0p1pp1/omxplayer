@@ -176,7 +176,7 @@ bool COMXAudio::SwitchDecoder(uint64_t layout, int rate)
     omx_err = tun->Deestablish();
     if (omx_err != OMX_ErrorNone)
     {
-      CLog::Log(LOGERROR,
+      CLog::Log(LOGWARNING,
           "%s::%s - Decoder failed to stop (ret:0x%08x)",
           CLASSNAME, __func__, omx_err);
     }

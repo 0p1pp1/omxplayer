@@ -592,6 +592,7 @@ int main(int argc, char *argv[])
     { "nohdmiclocksync", no_argument,     NULL,          'z' },
     { "refresh",      no_argument,        NULL,          'r' },
     { "genlog",       no_argument,        NULL,          'g' },
+    { "quiet",        no_argument,        NULL,          'q' },
     { "sid",          required_argument,  NULL,          't' },
     { "pos",          required_argument,  NULL,          'l' },    
     { "blank",        no_argument,        NULL,          'b' },
@@ -639,6 +640,7 @@ int main(int argc, char *argv[])
   float m_latency = 0.0f;
   int c;
   std::string mode;
+  bool quiet = false;
 
   //Build default keymap just in case the --key-config option isn't used
   map<int,int> keymap = KeyConfig::buildDefaultKeymap();
@@ -652,6 +654,9 @@ int main(int argc, char *argv[])
         break;
       case 'g':
         m_gen_log = true;
+        break;
+      case 'q':
+        quiet = true;
         break;
       case 'y':
         m_config_video.hdmi_clock_sync = true;
@@ -972,8 +977,10 @@ int main(int argc, char *argv[])
   if(m_gen_log) {
     CLog::SetLogLevel(LOG_LEVEL_DEBUG);
     CLog::Init("./");
-  } else {
+  } else if (quiet) {
     CLog::SetLogLevel(LOG_LEVEL_NONE);
+  } else {
+    CLog::SetLogLevel(LOG_LEVEL_NORMAL);
   }
 
   g_RBP.Initialize();
@@ -1528,12 +1535,12 @@ int main(int argc, char *argv[])
           sentStarted = true;
           m_latency = 0;
           idle = false;
-          printf("Re-tune'd to %s\n", m_filename.c_str());
+          CLog::Log(LOGNOTICE, "Re-tune'd to %s\n", m_filename.c_str());
         }
         else
         {
           idle = true;
-          printf("Failed to re-tune to %s\n", m_filename.c_str());
+          CLog::Log(LOGNOTICE, "Failed to re-tune to %s\n", m_filename.c_str());
         }
         break;
       default:
@@ -1629,7 +1636,7 @@ int main(int argc, char *argv[])
       double audio_pts = m_player_audio.GetCurrentPTS();
       double video_pts = m_player_video.GetCurrentPTS();
 
-CLog::Log(LOGDEBUG, "stamp = %.2f\n", stamp);
+      CLog::Log(LOGDEBUG, "stamp = %.2f\n", stamp);
       if (stamp > 0 && !m_av_clock->OMXIsPaused())
       {
         double old_stamp = stamp;
@@ -1639,7 +1646,7 @@ CLog::Log(LOGDEBUG, "stamp = %.2f\n", stamp);
           stamp = video_pts;
         if (old_stamp != stamp)
         {
-printf("PTS went back! %.2f -> %.2f\n", old_stamp, stamp);
+          CLog::Log(LOGNOTICE, "PTS went back! %.2f -> %.2f\n", old_stamp, stamp);
           m_av_clock->OMXMediaTime(stamp);
           stamp = m_av_clock->OMXMediaTime();
         }
@@ -1706,9 +1713,9 @@ printf("PTS went back! %.2f -> %.2f\n", old_stamp, stamp);
       {
         if (!m_av_clock->OMXIsPaused())
           m_latency = m_latency * 0.8f + latency * 0.2f;
-        else if (latency > m_threshold)
+        else if (audio_fifo_high && video_fifo_high)
         {
-          printf("Finished buffering. V%.2f, A%.2f\n", video_fifo, audio_fifo);
+          CLog::Log(LOGNOTICE, "Finished buffering. V%.2f, A%.2f\n", video_fifo, audio_fifo);
           CLog::Log(LOGDEBUG, "Resume %.2f,%.2f (%d,%d,%d,%d) EOF:%d PKT:%p\n", audio_fifo, video_fifo, audio_fifo_low, video_fifo_low, audio_fifo_high, video_fifo_high, m_omx_reader.IsEof(), m_omx_pkt);
           m_av_clock->OMXResume();
           m_latency = latency;
@@ -1764,7 +1771,7 @@ printf("PTS went back! %.2f -> %.2f\n", old_stamp, stamp);
       {
         if (m_av_clock->OMXIsPaused())
         {
-          CLog::Log(LOGDEBUG, "Resume %.2f,%.2f (%d,%d,%d,%d) EOF:%d PKT:%p\n", audio_fifo, video_fifo, audio_fifo_low, video_fifo_low, audio_fifo_high, video_fifo_high, m_omx_reader.IsEof(), m_omx_pkt);
+          CLog::Log(LOGNOTICE, "Resume %.2f,%.2f (%d,%d,%d,%d) EOF:%d PKT:%p\n", audio_fifo, video_fifo, audio_fifo_low, video_fifo_low, audio_fifo_high, video_fifo_high, m_omx_reader.IsEof(), m_omx_pkt);
           m_av_clock->OMXResume();
         }
       }
@@ -1774,7 +1781,7 @@ printf("PTS went back! %.2f -> %.2f\n", old_stamp, stamp);
         {
           if (!m_Pause)
             m_threshold = std::min(2.0f*m_threshold, 16.0f);
-          CLog::Log(LOGDEBUG, "Pause %.2f,%.2f (%d,%d,%d,%d) %.2f\n", audio_fifo, video_fifo, audio_fifo_low, video_fifo_low, audio_fifo_high, video_fifo_high, m_threshold);
+          CLog::Log(LOGNOTICE, "Pause %.2f,%.2f (%d,%d,%d,%d) %.2f\n", audio_fifo, video_fifo, audio_fifo_low, video_fifo_low, audio_fifo_high, video_fifo_high, m_threshold);
           m_av_clock->OMXPause();
         }
       }

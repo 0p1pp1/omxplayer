@@ -63,12 +63,6 @@ void CLog::Log(int loglevel, const char *format, ... )
      (m_logLevel > LOG_LEVEL_NONE && loglevel >= LOGNOTICE))
 #endif
   {
-    if (!m_file)
-    {
-      pthread_mutex_unlock(&m_log_mutex);
-      return;
-    }
-
     struct timeval now;
     gettimeofday(&now, NULL);
     SYSTEMTIME time;
@@ -83,6 +77,18 @@ void CLog::Log(int loglevel, const char *format, ... )
     va_start(va, format);
     strData.FormatV(format,va);
     va_end(va);
+
+    if (!m_file)
+    {
+      if (loglevel > LOGINFO)
+      {
+        strData.Replace("\n", LINE_ENDING"                                            ");
+        strData += LINE_ENDING;
+        fputs(strData.c_str(), stderr);
+      }
+      pthread_mutex_unlock(&m_log_mutex);
+      return;
+    }
 
     if (m_repeatLogLevel == loglevel && m_repeatLine == strData)
     {
