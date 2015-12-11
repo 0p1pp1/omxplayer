@@ -1111,7 +1111,7 @@ unsigned int COMXAudio::AddPackets(const void* data, unsigned int len, double dt
 
     uint64_t val  = (uint64_t)(pts == DVD_NOPTS_VALUE) ? 0 : pts;
 
-    if(m_setStartTime)
+    if(m_setStartTime && pts != DVD_NOPTS_VALUE)
     {
       omx_buffer->nFlags = OMX_BUFFERFLAG_STARTTIME;
 
