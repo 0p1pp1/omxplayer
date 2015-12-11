@@ -1,3 +1,38 @@
+ISDB/DVB再生用omxplayer
+======================
+
+raspberry piにUSBで接続されたDVBデバイス(Friio等)からハードウェア支援で再生する。
+
+## 修正内容 ##
+- DVB対応
+  * ffmpegへのDVBプロトコル入力機能の追加
+  * ffmpegへのISDBデスクランブル機能の追加(要libdemulti2, libyakisoba|libsobacas)
+  * DVBのチャンネル切り替え機能・dbusコマンド追加
+- 音声のチャンネル構成切り替わり対応 (gapless)
+- デュアルモノ対応
+- 映像のサイズ切り替わり対応
+
+## 使用上の注意 ##
+- 現状OSDが使えず、omxplayerの起動時に`--no-osd`オプションが必須
+- `-b`オプションを指定するとうまく再生できない模様
+- `--threshold`オプションを指定してバッファリングしないとカクカクする
+- DVBのチャンネル設定ファイルは、ISDB向けmplayerと同じフォーマットで、
+defaultでは`$XDG_DATA_HOME/ffmpeg/channels.conf`
+- チャンネル切り替わりの反応は遅い (+5秒)
+  * (Friio限定かも)DVBデバイスの制御(USBでのI2Cコマンド送信)に時間がかかっている
+  * 再バッファリングやECM/デスクランブル待ちの方法がまずいのかも...
+- ISDB向けmplayerと同様に、libdemulti2は配布していない
+- (raspberry pi 2以外) USBでかなりの頻度(125us間隔?)で割り込みを使用するので、
+他の割り込みが遅れることがある
+  * lirc_devを使用する際にはlircd.confのepsやaepsを大きくする必要がある。
+
+## 使用方法の一例 ##
+```
+omxplayer --no-osd -o hdmi --threshold 0.7 --amp -1200 --vol -900 dvb://NHK
+```
+
+以下、本家オリジナルの文書(+追加)
+
 omxplayer(1) -- Raspberry Pi command line OMX player
 ====================================================
 
@@ -7,7 +42,7 @@ standalone.
 
 ## DOWNLOADING
 
-    git clone https://github.com/popcornmix/omxplayer.git
+    git clone https://github.com/0p1pp1/omxplayer.git
 
 ## HELP AND DOCS
 
@@ -559,6 +594,24 @@ Turns off subtitles.
    Params       |   Type 
 :-------------: | -------
  Return         | `null` 
+
+#### SetUrl
+
+Switches input source to the given URL.
+If invalid URL is specified, player stops and wait for the next URL to be set.
+Currently, only DVB protocol is supported and tested, in the following format:
+
+    dvb://[{card#}@]{channel_name}[?option=val....]
+
+option can be one of `adapter`,`frontend`, `demux`, `buffer_size`, and
+`channel_file=PATH`.
+
+   Params       |   Type    | Description
+:-------------: | ----------| ------------------------------------
+ 1              | `string`  | URL of the source
+ Return         | `null`    |
+
+
 
 #### Action
 
