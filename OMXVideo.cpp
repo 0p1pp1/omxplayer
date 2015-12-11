@@ -753,6 +753,7 @@ int COMXVideo::Decode(uint8_t *pData, int iSize, double dts, double pts)
       }
 
       omx_buffer->nFlags = nFlags;
+      nFlags &= ~OMX_BUFFERFLAG_STARTTIME;
       omx_buffer->nOffset = 0;
       omx_buffer->nTimeStamp = ToOMXTime((uint64_t)(pts != DVD_NOPTS_VALUE ? pts : dts != DVD_NOPTS_VALUE ? dts : 0));
       omx_buffer->nFilledLen = std::min((OMX_U32)demuxer_bytes, omx_buffer->nAllocLen);
